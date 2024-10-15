@@ -14,11 +14,14 @@ import torch
 import torch.nn.functional as F
 from torch.optim import AdamW  # AdamW를 torch.optim에서 가져옴
 from torch.utils.data import DataLoader, TensorDataset
-from transformers import AutoTokenizer, AutoModel, AutoConfig, get_linear_schedule_with_warmup  # 필요한 모듈 추가
+from transformers import (AutoTokenizer, AutoModel, AutoConfig, get_linear_schedule_with_warmup,
+    get_linear_schedule_with_warmup, EarlyStoppingCallback, TrainingArguments
+)  
 from datasets import Dataset, concatenate_datasets, load_from_disk
 from sklearn.feature_extraction.text import TfidfVectorizer
 from tqdm.auto import tqdm, trange
-from transformers import get_linear_schedule_with_warmup, EarlyStoppingCallback
+from transformers import 
+from .arguments import ModelArguments, DataTrainingArguments
 
 seed = 2024
 random.seed(seed) # python random seed 고정
@@ -33,22 +36,23 @@ def timer(name):
     print(f"[{name}] done in {time.time() - t0:.3f} s")
 
 class DenseRetrieval:
-    def __init__(self, model_args, data_args, tokenizer, context_path: Optional[str] = "wikipedia_documents.json"):
+    def __init__(self, model_args, data_args, context_path: Optional[str] = "wikipedia_documents.json", training_args):
         """
         DenseRetrieval 클래스 초기화
         학습과 추론에 필요한 객체들을 초기화하며, in-batch negative 데이터를 준비합니다.
         """
-        config = AutoConfig.from_pretrained('klue/bert-base')#(model_args.model_name_or_path)
-        self.dataset = load_from_disk('/data/ephemeral/data/train_dataset')["train"]
+        config = AutoConfig.from_pretrained(model_args.dense_model_name_or_path)#(model_args.model_name_or_path)
+        self.dataset = load_from_disk(data_args.train_dataset_name)["train"]
         self.tokenizer = tokenizer = AutoTokenizer.from_pretrained(
-        'klue/bert-base', use_fast=True)
-        self.p_encoder = AutoModel.from_pretrained('klue/bert-base', config=config).to('cuda')
-        self.q_encoder = AutoModel.from_pretrained('klue/bert-base', config=config).to('cuda')
-        self.num_neg = 2
-        self.contexts = self.load_contexts(os.path.join('/data/ephemeral/data/', context_path))
-        self.batch_size= 8
+        model_args.dense_model_name_or_path, use_fast=True)
+        self.p_encoder = AutoModel.from_pretrained(model_args.dense_model_name_or_path, config=config).to('cuda')
+        self.q_encoder = AutoModel.from_pretrained(model_args.dense_model_name_or_path, config=config).to('cuda')
+        self.num_neg = data_args.num_neg
+        self.contexts = self.load_contexts(os.path.join(data_args.data_path, context_path))
+        self.batch_size= training_args.batch_size
+        self.num_train_epochs = training_args.num_train_epochs
         self.train_dataloader = self.prepare_in_batch_negative(data_args)
-        self.num_train_epochs = 1
+        
         # Embedding 저장을 위한 변수
         self.p_embedding = None
 
@@ -371,25 +375,20 @@ class DenseRetrieval:
         return self.p_encoder, self.q_encoder
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="")
-    parser.add_argument("--dataset_name", metavar="./data/train_dataset", type=str, help="Dataset name")
-    parser.add_argument("--model_name_or_path", metavar="bert-base-multilingual-cased", type=str, help="Model path")
-    parser.add_argument("--context_path", metavar="wikipedia_documents", type=str, help="Path to context file")
-    parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Batch size for training")
-    parser.add_argument("--num_neg", type=int, default=2, help="Number of negative samples")
+    model_args = ModelArguments(**cfg.get("model"))
+    data_args = DataTrainingArguments(**cfg.get("data"))
+    training_args = TrainingArguments(**cfg.get("train"))
+    training_args.num_neg = 2
+    training_args.batch_size = 8
+    training_args.use_faiss = False
 
-    args = parser.parse_args()
-
-    # Load dataset, tokenizer, and models
-    dataset = load_from_disk(args.dataset_name)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
-    p_encoder = AutoModel.from_pretrained(args.model_name_or_path)
-    q_encoder = AutoModel.from_pretrained(args.model_name_or_path)
-
-    retriever = DenseRetrieval(args, args, tokenizer)
-    retriever.train(args)
+    retriever = DenseRetrieval(model_args=model_args, data_args=data_args, training_args=training_args)
+    retriever.train()
+    retriever.get_dense_embedding()
+    #여기까지가 train + embedding 및 q_encoder 저장
+    
     '''
-    # Test sparse
+    # Test Dense
     org_dataset = load_from_disk(args.dataset_name)
     full_ds = concatenate_datasets(
         [
@@ -400,17 +399,11 @@ if __name__ == "__main__":
     print("*" * 40, "query dataset", "*" * 40)
     print(full_ds)
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=False,)
-
-    retriever = SparseRetrieval(
-        tokenize_fn=tokenizer.tokenize,
-        data_path=args.data_path,
-        context_path=args.context_path,
-    )
+    tokenizer = retriever.tokenizer
 
     query = "대통령을 포함한 미국의 행정부 견제권을 갖는 국가 기관은?"
-
-    if args.use_faiss:
+    
+    if training_args.use_faiss:
 
         # test single query
         with timer("single query by faiss"):
@@ -434,4 +427,4 @@ if __name__ == "__main__":
 
         with timer("single query by exhaustive search"):
             scores, indices = retriever.retrieve(query)
-        '''
+    '''
