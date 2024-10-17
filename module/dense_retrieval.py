@@ -8,6 +8,7 @@ from typing import List, NoReturn, Optional, Tuple, Union
 
 import wandb
 import faiss
+from omegaconf import DictConfig, OmegaConf
 import numpy as np
 import pandas as pd
 import torch
@@ -20,7 +21,6 @@ from transformers import (AutoTokenizer, AutoModel, AutoConfig, get_linear_sched
 from datasets import Dataset, concatenate_datasets, load_from_disk
 from sklearn.feature_extraction.text import TfidfVectorizer
 from tqdm.auto import tqdm, trange
-from transformers import 
 from .arguments import ModelArguments, DataTrainingArguments
 
 seed = 2024
@@ -36,7 +36,7 @@ def timer(name):
     print(f"[{name}] done in {time.time() - t0:.3f} s")
 
 class DenseRetrieval:
-    def __init__(self, model_args, data_args, context_path: Optional[str] = "wikipedia_documents.json", training_args):
+    def __init__(self, model_args, data_args, training_args, context_path: Optional[str] = "wikipedia_documents.json"):
         """
         DenseRetrieval 클래스 초기화
         학습과 추론에 필요한 객체들을 초기화하며, in-batch negative 데이터를 준비합니다.
@@ -48,14 +48,14 @@ class DenseRetrieval:
         self.p_encoder = AutoModel.from_pretrained(model_args.dense_model_name_or_path, config=config).to('cuda')
         self.q_encoder = AutoModel.from_pretrained(model_args.dense_model_name_or_path, config=config).to('cuda')
         self.num_neg = data_args.num_neg
+        self.p_embedding = None
         self.contexts = self.load_contexts(os.path.join(data_args.data_path, context_path))
-        self.batch_size= training_args.batch_size
-        self.num_train_epochs = training_args.num_train_epochs
+        self.batch_size = training_args.per_device_train_batch_size
+        self.num_train_epochs = 1#training_args.num_train_epochs
         self.train_dataloader = self.prepare_in_batch_negative(data_args)
         
         # Embedding 저장을 위한 변수
-        self.p_embedding = None
-
+        
     def load_contexts(self, context_path):
         """
         Load context data from file.
@@ -76,17 +76,18 @@ class DenseRetrieval:
 
         for i, context in enumerate(self.dataset['context']):
             q_encodings = self.tokenizer(self.dataset['question'][i], truncation=True, padding='max_length', return_tensors="pt")
-            q_input_ids.append(q_encodings['input_ids'].squeeze(0).tolist())
+            q_input_ids.append(q_encodings['input_ids'].tolist())
             q_attention_mask.append(q_encodings['attention_mask'].tolist())
-            q_token_type_ids.append(q_encodings['token_type_ids'].squeeze(0).tolist() if 'token_type_ids' in q_encodings else [0] * len(q_encodings['input_ids']))
+            q_token_type_ids.append(q_encodings['token_type_ids'].tolist() if 'token_type_ids' in q_encodings else [0] * len(q_encodings['input_ids']))
 
             neg_contexts = self._sample_negatives(context, corpus)
             p_encodings = self.tokenizer([context] + neg_contexts, truncation=True, padding='max_length', return_tensors="pt")
-            p_input_ids.append(p_encodings['input_ids'].view(-1, self.num_neg + 1, 512).tolist())
-            p_attention_mask.append(p_encodings['attention_mask'].view(-1, self.num_neg + 1, 512).tolist())
-            p_token_type_ids.append(p_encodings['token_type_ids'].view(-1, self.num_neg + 1, 512).tolist() if 'token_type_ids' in p_encodings else [[0] * 512] * (self.num_neg + 1))
+            p_input_ids.append(p_encodings['input_ids'].tolist())
+            p_attention_mask.append(p_encodings['attention_mask'].tolist())
+            p_token_type_ids.append(p_encodings['token_type_ids'].tolist() if 'token_type_ids' in p_encodings else [[0] * 512] * (self.num_neg + 1))
+        size=p_encodings['input_ids'].size(-1)
         # `token_type_ids`는 RoBERTa에서 사용하지 않으므로 제거
-        dataset = self._create_tensor_dataset(q_input_ids, q_attention_mask, q_token_type_ids, p_input_ids, p_attention_mask, p_token_type_ids)
+        dataset = self._create_tensor_dataset(size, q_input_ids, q_attention_mask, q_token_type_ids, p_input_ids, p_attention_mask, p_token_type_ids)
         return DataLoader(dataset, batch_size=self.batch_size)
 
     def _sample_negatives(self, context, corpus):
@@ -99,13 +100,14 @@ class DenseRetrieval:
             if context not in neg_contexts:
                 return neg_contexts
 
-    def _create_tensor_dataset(self, q_input_ids, q_attention_mask, q_token_type_ids, p_input_ids, p_attention_mask, p_token_type_ids):
+    def _create_tensor_dataset(self, size, q_input_ids, q_attention_mask, q_token_type_ids, p_input_ids, p_attention_mask, p_token_type_ids):
         """
         Create tensor dataset for DataLoader.
         """
+        
         return TensorDataset(
             torch.tensor(q_input_ids), torch.tensor(q_attention_mask), torch.tensor(q_token_type_ids),
-            torch.tensor(p_input_ids), torch.tensor(p_attention_mask), torch.tensor(p_token_type_ids)
+            torch.tensor(p_input_ids).view(-1, self.num_neg + 1, size), torch.tensor(p_attention_mask).view(-1, self.num_neg + 1, size), torch.tensor(p_token_type_ids).view(-1, self.num_neg + 1, size)
         )
 
     def get_dense_embedding(self) -> NoReturn:
@@ -115,6 +117,7 @@ class DenseRetrieval:
         """
         dense_embedding_path = os.path.join('/data/ephemeral/data/', "dense_embedding.bin")
         q_encoder_path = os.path.join('/data/ephemeral/data/', "q_encoder.bin")
+        p_encoder_path = os.path.join('/data/ephemeral/data/', "p_encoder.bin")
 
         # 1. 이미 저장된 파일이 있으면 불러오기
         if os.path.isfile(dense_embedding_path) and os.path.isfile(q_encoder_path):
@@ -137,6 +140,7 @@ class DenseRetrieval:
             with open(dense_embedding_path, "wb") as file:
                 pickle.dump(self.p_embedding, file)
             torch.save(self.q_encoder, q_encoder_path)
+            torch.save(self.p_encoder, p_encoder_path)
             print(f"Dense embedding and q_encoder saved to {dense_embedding_path} and {q_encoder_path}.")
 
         # p_encoder 메모리에서 해제
@@ -148,6 +152,7 @@ class DenseRetrieval:
         Passage encoder로부터 문서 임베딩을 계산하고 반환합니다.
         """
         p_embedding = []
+        self.p_encoder.eval()
         for passage in tqdm(self.contexts, desc="Building dense embeddings"):
             passage_inputs = self.tokenizer(passage, return_tensors="pt", truncation=True, padding="max_length").to('cuda')
             with torch.no_grad():
@@ -174,10 +179,10 @@ class DenseRetrieval:
             query_inputs = self.tokenizer(query_or_dataset, return_tensors="pt", truncation=True, padding="max_length").to('cuda')
             query_vec = self.q_encoder(**query_inputs).pooler_output
 
-            passage_vecs = torch.tensor(self.p_embedding).squeeze(1).to('cuda')
+            passage_vecs = torch.tensor(self.p_embedding).to('cuda')
 
             with torch.no_grad():
-                sim_scores = torch.matmul(query_vec, passage_vecs.T).squeeze()
+                sim_scores = torch.matmul(query_vec, passage_vecs.T)
 
             topk_scores, topk_indices = torch.topk(sim_scores, k=topk)
             topk_passages = [self.contexts[idx] for idx in topk_indices.cpu().tolist()]
@@ -186,22 +191,21 @@ class DenseRetrieval:
 
         # 다수의 Query가 포함된 Dataset이 입력된 경우
         elif isinstance(query_or_dataset, Dataset):
-
             total = []
+            self.q_encoder.eval()
             queries = query_or_dataset["question"]
+            query_inputs = self.tokenizer(queries, return_tensors="pt", truncation=True, padding="max_length").to('cuda')
+            with torch.no_grad():
+                q_outputs = self.q_encoder(**query_inputs).pooler_output
+            
+            passage_vecs = torch.tensor(self.p_embedding).view(-1,self.q_encoder.config.hidden_size).to('cuda')
 
+            with torch.no_grad():
+                sim_scores = torch.matmul(q_outputs, passage_vecs.T)
+
+            topk_scores, topk_indices = torch.topk(sim_scores, k=topk)
             for idx, query in enumerate(queries):
-                query_inputs = self.tokenizer(query, return_tensors="pt", truncation=True, padding="max_length").to('cuda')
-                query_vec = self.q_encoder(**query_inputs).pooler_output
-                
-                passage_vecs = torch.tensor(self.p_embedding).squeeze(1).to('cuda')
-
-                with torch.no_grad():
-                    sim_scores = torch.matmul(query_vec, passage_vecs.T).squeeze()
-                topk_scores, topk_indices = torch.topk(sim_scores, k=topk)
-                print(sim_scores.size())
-                print(topk_indices)
-                topk_passages = [self.contexts[i] for i in topk_indices.cpu().tolist()]
+                topk_passages = [self.contexts[i] for i in topk_indices[idx].cpu().tolist()]
 
                 # 상위 k개의 문서를 하나의 문자열로 결합
                 joined_passages = " ".join(topk_passages)
@@ -209,12 +213,11 @@ class DenseRetrieval:
                 # 'train' 데이터셋의 경우
                 if "context" in query_or_dataset.column_names and "answers" in query_or_dataset.column_names:
                     tmp = {
+                        "answers": query_or_dataset["answers"][idx],
                         "context": joined_passages,  # 상위 k개의 문서를 하나의 문자열로 결합하여 사용
                         "id": query_or_dataset["id"][idx],
                         "question": query,
-                        "answers": query_or_dataset["answers"][idx],
                     }
-
                 # 'validation' 또는 'test' 데이터셋의 경우
                 else:
                     tmp = {
@@ -223,9 +226,10 @@ class DenseRetrieval:
                         "question": query,
                     }
 
-              
                 total.append(tmp)
             result = pd.DataFrame(total)
+            print(result.columns)  # DataFrame의 열 이름 확인
+            
             print(result.head(10))
             return result
 
@@ -326,9 +330,9 @@ class DenseRetrieval:
                     targets = targets.to('cuda')
 
                     q_inputs = {
-                        "input_ids": batch[0].to('cuda'),
-                        "attention_mask": batch[1].to('cuda'),
-                        "token_type_ids": batch[2].to('cuda')  # token_type_ids 추가
+                        "input_ids": batch[0].squeeze().to('cuda'),
+                        "attention_mask": batch[1].squeeze().to('cuda'),
+                        "token_type_ids": batch[2].squeeze().to('cuda')  # token_type_ids 추가
                     }
                     
                     p_inputs = {
@@ -336,7 +340,6 @@ class DenseRetrieval:
                         "attention_mask": batch[4].view(self.batch_size * (self.num_neg + 1), -1).to('cuda'),
                         "token_type_ids": batch[5].view(self.batch_size * (self.num_neg + 1), -1).to('cuda')  # token_type_ids 추가
                     }
-
                     del batch
                     torch.cuda.empty_cache()
                     # (batch_size * (num_neg + 1), emb_dim)
@@ -374,16 +377,15 @@ class DenseRetrieval:
                 wandb.log({"epoch_loss": epoch_loss, "epoch": _ + 1})
         return self.p_encoder, self.q_encoder
 
-if __name__ == "__main__":
+def ret_train(cfg: DictConfig):
     model_args = ModelArguments(**cfg.get("model"))
     data_args = DataTrainingArguments(**cfg.get("data"))
     training_args = TrainingArguments(**cfg.get("train"))
     training_args.num_neg = 2
-    training_args.batch_size = 8
+    training_args.per_device_train_batch_size = 8
     training_args.use_faiss = False
 
-    retriever = DenseRetrieval(model_args=model_args, data_args=data_args, training_args=training_args)
-    retriever.train()
+    retriever = DenseRetrieval(model_args=model_args, data_args=data_args, training_args=training_args, context_path = '/data/ephemeral/data/wikipedia_documents.json')
     retriever.get_dense_embedding()
     #여기까지가 train + embedding 및 q_encoder 저장
     
