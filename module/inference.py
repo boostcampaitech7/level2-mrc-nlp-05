@@ -22,6 +22,7 @@ from datasets import (
     load_metric,
 )
 from .sparse_retrieval import SparseRetrieval
+from .dense_retrieval import DenseRetrieval
 from .trainer_qa import QuestionAnsweringTrainer
 from transformers import (
     AutoConfig,
@@ -49,15 +50,15 @@ def inference(cfg: DictConfig):
     data_args = DataTrainingArguments(**cfg.get("data"))
     training_args = TrainingArguments(**cfg.get("train"))
     
-    result_path = f"{model_args.model_name_or_path.split('/')[-1]}_{data_args.dataset_name.split('/')[-1]}"
+    result_path = f"{model_args.model_name_or_path.split('/')[-1]}_{data_args.train_dataset_name.split('/')[-1]}"
     training_args.output_dir = os.path.join(training_args.output_dir, result_path)
-    project_name = f"{model_args.model_name_or_path.split('/')[-1]}_{data_args.dataset_name.split('/')[-1]}"
+    project_name = f"{model_args.model_name_or_path.split('/')[-1]}_{data_args.train_dataset_name.split('/')[-1]}"
     model_path = os.path.join(model_args.saved_model_path,project_name)
     #training_args.do_train = True
 
     print(f"model file from {model_path}")
     print(f"model is from {model_args.model_name_or_path}")
-    print(f"data is from {data_args.dataset_name}")
+    print(f"data is from {data_args.train_dataset_name}")
 
     # logging 설정
     logging.basicConfig(
@@ -71,8 +72,10 @@ def inference(cfg: DictConfig):
 
     # 모델을 초기화하기 전에 난수를 고정합니다.
     set_seed(training_args.seed)
-
-    datasets = load_from_disk(data_args.dataset_name)
+    if training_args.do_predict:
+        datasets = load_from_disk(data_args.test_dataset_name)
+    else:
+        datasets = load_from_disk(data_args.train_dataset_name)
     #print(datasets)
 
     # AutoConfig를 이용하여 pretrained model 과 tokenizer를 불러옵니다.
@@ -89,15 +92,15 @@ def inference(cfg: DictConfig):
         use_fast=True,
     )
     model = AutoModelForQuestionAnswering.from_pretrained(
-        model_path,
+        '/data/ephemeral/PMJ/github/level2-mrc-nlp-05/models/train_dataset/bert-base_',
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
     )
 
     # True일 경우 : run passage retrieval
     if data_args.eval_retrieval:
-        datasets = run_sparse_retrieval(
-            tokenizer.tokenize, datasets, training_args, data_args,
+        datasets = run_retrieval(
+            tokenizer.tokenize, datasets, model_args, training_args, data_args,
         )
 
     # eval or predict mrc model
@@ -105,9 +108,10 @@ def inference(cfg: DictConfig):
         run_mrc(data_args, training_args, model_args, datasets, tokenizer, model)
 
     
-def run_sparse_retrieval(
+def run_retrieval(
     tokenize_fn: Callable[[str], List[str]],
     datasets: DatasetDict,
+    model_args: ModelArguments,
     training_args: TrainingArguments,
     data_args: DataTrainingArguments,
     data_path: str = "../data",
@@ -115,10 +119,20 @@ def run_sparse_retrieval(
 ) -> DatasetDict:
 
     # Query에 맞는 Passage들을 Retrieval 합니다.
-    retriever = SparseRetrieval(
-        tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
-    )
-    retriever.get_sparse_embedding()
+    if data_args.which_retrieval == 'sparse':
+        retriever = SparseRetrieval(
+            tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
+        )
+        retriever.get_sparse_embedding()
+    elif data_args.which_retrieval == 'dense':
+        retriever = DenseRetrieval(
+            model_args=model_args, data_args=data_args, training_args=training_args, context_path=context_path
+        )
+        retriever.get_dense_embedding()
+    elif data_args.which_retrieval == 'hybrid':
+        retriever = HybridRetrieval(
+
+        )
 
     if data_args.use_faiss:
         retriever.build_faiss(num_clusters=data_args.num_clusters)

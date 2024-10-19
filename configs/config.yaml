@@ -2,6 +2,7 @@ defaults:
   - _self_
   - train: train
   - inference: inference
+  - ret_train: train
 
 mode : ${mode}
 

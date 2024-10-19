@@ -13,7 +13,14 @@ class ModelArguments:
             "help": "Path to pretrained model or model identifier from huggingface.co/models"
         },
     )
-    
+
+    dense_model_name_or_path: str = field(
+        default="klue/bert-base",
+        metadata={
+            "help": "Path to pretrained model or model identifier from huggingface.co/models"
+        },
+    )
+
     model_name_or_path: str = field(
         default="klue/bert-base",
         metadata={
@@ -39,9 +46,16 @@ class DataTrainingArguments:
     """
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
-
-    dataset_name: Optional[str] = field(
-        default="../data/train_dataset",
+    data_path: Optional[str] = field(
+        default="/data/ephemeral/data",
+        metadata={"help": "Data path."},
+    )
+    train_dataset_name: Optional[str] = field(
+        default="/data/ephemeral/data/train_dataset",
+        metadata={"help": "The name of the dataset to use."},
+    )
+    test_dataset_name: Optional[str] = field(
+        default="/data/ephemeral/data/test_dataset",
         metadata={"help": "The name of the dataset to use."},
     )
     overwrite_cache: bool = field(
@@ -95,4 +109,10 @@ class DataTrainingArguments:
     )
     use_faiss: bool = field(
         default=False, metadata={"help": "Whether to build with faiss"}
+    )
+    num_neg: int = field(
+        default=2, metadata={"help": "Define how many negative passage per question."}
+    )
+    which_retrieval: str = field(
+        default='dense', metadata={"help": "dense or sparse"}
     )
