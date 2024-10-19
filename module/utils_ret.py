@@ -2,6 +2,8 @@ import json
 import os
 import pickle
 
+from rank_bm25 import BM25Okapi
+from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 import torch
 from datasets import load_from_disk
@@ -52,12 +54,14 @@ def prepare_in_batch_negative(config, contexts, tokenizer, model_args, data_args
     Prepare in-batch negative samples for training.
     """
     dataset = load_from_disk(data_args.train_dataset_name)["train"]
-
+    tokenized_contexts = [doc.split() for doc in contexts]
+    bm25 = BM25Okapi(tokenized_contexts)
     q_input_ids, q_attention_mask, q_token_type_ids = [], [], []
     p_input_ids, p_attention_mask, p_token_type_ids = [], [], []
     bert = False
     if "bert" == model_args.dense_model_name_or_path.split("/")[-1][:4]:
         bert = True
+
     for i, context in enumerate(dataset["context"]):
         q_encodings = tokenizer(dataset["question"][i],
         truncation=True,
@@ -66,7 +70,12 @@ def prepare_in_batch_negative(config, contexts, tokenizer, model_args, data_args
         q_input_ids.append(q_encodings["input_ids"].tolist())
         q_attention_mask.append(q_encodings["attention_mask"].tolist())
 
-        neg_contexts = sample_negatives(data_args.num_neg, context, contexts)
+        neg_contexts = sample_negatives(dataset["question"][i],
+            data_args.num_neg, 
+            context, 
+            contexts,
+            bm25,
+        )
         p_encodings = tokenizer([context] + neg_contexts,
         truncation=True,
         padding="max_length",
@@ -93,16 +102,21 @@ def prepare_in_batch_negative(config, contexts, tokenizer, model_args, data_args
     return DataLoader(dataset, batch_size=training_args.per_device_train_batch_size)
 
 
-def sample_negatives(num_neg, context, contexts):
+def sample_negatives(question, num_neg, context, contexts, bm25):
     """
-    Sample negative contexts.
+    Sample negative contexts using BM25.
     """
-    while True:
-        neg_idxs = np.random.randint(len(contexts), size=num_neg)
-        neg_contexts = [contexts[idx] for idx in neg_idxs]
-        if context not in neg_contexts:
-            return neg_contexts
+    tokenized_question = question.split()
+    scores = bm25.get_scores(tokenized_question)
+    ranked_idxs = np.argsort(scores)[::-1]  # 스코어가 높은 순으로 정렬
+    neg_contexts = []
 
+    for idx in ranked_idxs:
+        if contexts[idx] != context:
+            neg_contexts.append(contexts[idx])
+        if len(neg_contexts) == num_neg:
+            break
+    return neg_contexts
 
 def create_tensor_dataset(
     bert,
