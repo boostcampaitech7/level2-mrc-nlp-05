@@ -7,7 +7,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from module.train import train
 from module.inference import inference
-from module.dense_retrieval import ret_train
+from module.dense_ret_train import ret_train
 
 
 

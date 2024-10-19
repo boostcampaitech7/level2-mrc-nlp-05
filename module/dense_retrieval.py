@@ -1,40 +1,47 @@
+from typing import List, NoReturn, Optional, Tuple, Union
+
 import json
 import os
 import pickle
-import time
 import random
+import time
 from contextlib import contextmanager
-from typing import List, NoReturn, Optional, Tuple, Union
 
-from .utils_ret import load_contexts
-from .arguments import ModelArguments, DataTrainingArguments
-
-import wandb
 import faiss
-from omegaconf import DictConfig, OmegaConf
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
+import wandb
+from datasets import Dataset, concatenate_datasets, load_from_disk
+from omegaconf import DictConfig, OmegaConf
+from sklearn.feature_extraction.text import TfidfVectorizer
 from torch.optim import AdamW  # AdamW를 torch.optim에서 가져옴
 from torch.utils.data import DataLoader, TensorDataset
-from transformers import (AutoTokenizer, AutoModel, AutoConfig, get_linear_schedule_with_warmup,
-    get_linear_schedule_with_warmup, EarlyStoppingCallback, TrainingArguments
-)  
-from datasets import Dataset, concatenate_datasets, load_from_disk
-from sklearn.feature_extraction.text import TfidfVectorizer
 from tqdm.auto import tqdm, trange
+from transformers import (
+    AutoConfig,
+    AutoModel,
+    AutoTokenizer,
+    EarlyStoppingCallback,
+    TrainingArguments,
+    get_linear_schedule_with_warmup,
+)
 
+from .arguments import DataTrainingArguments, ModelArguments
+from .utils_ret import load_contexts
 
 seed = 2024
-random.seed(seed) # python random seed 고정
-np.random.seed(seed) # numpy random seed 고정
+random.seed(seed)  # python random seed 고정
+np.random.seed(seed)  # numpy random seed 고정
+
 
 @contextmanager
 def timer(name):
     t0 = time.time()
     yield
     print(f"[{name}] done in {time.time() - t0:.3f} s")
+
 
 class DenseRetrieval:
     def __init__(self, model_args, data_args, training_args, context_path: Optional[str] = "wikipedia_documents.json"):
@@ -63,7 +70,7 @@ class DenseRetrieval:
             with open(dense_embedding_path, "rb") as file:
                 self.p_embedding = pickle.load(file)
             with open(q_encoder_path, "rb") as file:
-                self.q_encoder = torch.load(file).to('cuda')
+                self.q_encoder = torch.load(file).to("cuda")
             self.q_encoder.eval()
             print("Loaded dense embedding and q_encoder from files.")
         else:
@@ -85,10 +92,11 @@ class DenseRetrieval:
         assert self.p_embedding is not None, "get_dense_embedding() 메소드를 먼저 수행해줘야 합니다."
 
         if isinstance(query_or_dataset, str):
-            query_inputs = self.tokenizer(query_or_dataset, return_tensors="pt",
-            truncation=True, padding="max_length").to('cuda')
-            query_vec = self.q_encoder(**query_inputs).pooler_output
-            passage_vecs = torch.tensor(self.p_embedding).to('cuda')
+            query_inputs = self.tokenizer(
+                query_or_dataset, return_tensors="pt", truncation=True, padding="max_length"
+            ).to("cuda")
+            query_vec = self.q_encoder(**query_inputs)
+            passage_vecs = torch.tensor(self.p_embedding).to("cuda")
 
             with torch.no_grad():
                 sim_scores = torch.matmul(query_vec, passage_vecs.T)
@@ -104,11 +112,13 @@ class DenseRetrieval:
         elif isinstance(query_or_dataset, Dataset):
             total = []
             queries = query_or_dataset["question"]
-            query_inputs = self.tokenizer(queries, return_tensors="pt", truncation=True, padding="max_length").to('cuda')
+            query_inputs = self.tokenizer(queries, return_tensors="pt", truncation=True, padding="max_length").to(
+                "cuda"
+            )
             with torch.no_grad():
-                q_outputs = self.q_encoder(**query_inputs).pooler_output
-            
-            passage_vecs = torch.tensor(self.p_embedding).view(-1, self.q_encoder.config.hidden_size).to('cuda')
+                q_outputs = self.q_encoder(**query_inputs)
+
+            passage_vecs = torch.tensor(self.p_embedding).view(-1, self.q_encoder.config.hidden_size).to("cuda")
 
             with torch.no_grad():
                 sim_scores = torch.matmul(q_outputs, passage_vecs.T)
