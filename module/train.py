@@ -47,15 +47,16 @@ def train(cfg: DictConfig):
     # print(training_args.per_device_train_batch_size)
     project_name = f"{model_args.model_name_or_path.split('/')[-1]}_{data_args.dataset_name.split('/')[-1]}"
     training_args.output_dir = os.path.join(training_args.output_dir, project_name)
-    wandb.init(project="mrc", name=project_name)
-    wandb.config.update(
-        {
-            "model_name": model_args.model_name_or_path,
-            "data_path": data_args.dataset_name,
-            "max_seq_length": data_args.max_seq_length,
-            "doc_stride": data_args.doc_stride,
-        }
-    )
+    if training_args.report_to == ['wandb']:
+        wandb.init(project="mrc", name=project_name)
+        wandb.config.update(
+            {
+                "model_name": model_args.model_name_or_path,
+                "data_path": data_args.dataset_name,
+                "max_seq_length": data_args.max_seq_length,
+                "doc_stride": data_args.doc_stride,
+            }
+        )
     print(f"model is from {model_args.model_name_or_path}")
     print(f"data is from {data_args.dataset_name}")
 
@@ -101,5 +102,5 @@ def train(cfg: DictConfig):
     if training_args.do_train or training_args.do_eval:
         run_mrc(data_args, training_args, model_args, datasets, tokenizer, model)
 
-
-    wandb.finish()
+    if training_args.report_to == ['wandb']:
+        wandb.finish()
