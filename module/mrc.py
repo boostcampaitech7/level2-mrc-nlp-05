@@ -8,9 +8,9 @@ from typing import NoReturn
 from omegaconf import DictConfig
 import hydra
 
-from .arguments import DataTrainingArguments, ModelArguments
+from module.arguments import DataTrainingArguments, ModelArguments
 from datasets import DatasetDict, load_from_disk, load_metric
-from .trainer_qa import QuestionAnsweringTrainer
+from module.trainer_qa import QuestionAnsweringTrainer
 from transformers import (
     AutoConfig,
     AutoModelForQuestionAnswering,
@@ -21,7 +21,7 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
-from .utils_qa import set_seed, check_no_error, postprocess_qa_predictions
+from module.utils_qa import set_seed, check_no_error, postprocess_qa_predictions
 logger = logging.getLogger(__name__)
 
 
@@ -66,7 +66,7 @@ def run_mrc(
             stride=data_args.doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            # return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
+            return_token_type_ids=False if "roberta" in model.config.model_type else True,
             padding="max_length" if data_args.pad_to_max_length else False,
         )
 
@@ -158,16 +158,70 @@ def run_mrc(
             stride=data_args.doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            # return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
+            return_token_type_ids=False if "roberta" in model.config.model_type else True, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
             padding="max_length" if data_args.pad_to_max_length else False,
         )
 
         # 길이가 긴 context가 등장할 경우 truncate를 진행해야하므로, 해당 데이터셋을 찾을 수 있도록 mapping 가능한 값이 필요합니다.
         sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
-
+        offset_mapping = tokenized_examples["offset_mapping"]
         # evaluation을 위해, prediction을 context의 substring으로 변환해야합니다.
         # corresponding example_id를 유지하고 offset mappings을 저장해야합니다.
         tokenized_examples["example_id"] = []
+        
+        if training_args.do_eval:
+            tokenized_examples["start_positions"] = []
+            tokenized_examples["end_positions"] = []
+
+            for i, offsets in enumerate(offset_mapping):
+                input_ids = tokenized_examples["input_ids"][i]
+                cls_index = input_ids.index(tokenizer.cls_token_id)  # cls index
+
+                # sequence id를 설정합니다 (to know what is the context and what is the question).
+                sequence_ids = tokenized_examples.sequence_ids(i)
+
+                # 하나의 example이 여러개의 span을 가질 수 있습니다.
+                sample_index = sample_mapping[i]
+                answers = examples[answer_column_name][sample_index]
+
+                # answer가 없을 경우 cls_index를 answer로 설정합니다(== example에서 정답이 없는 경우 존재할 수 있음).
+                if len(answers["answer_start"]) == 0:
+                    tokenized_examples["start_positions"].append(cls_index)
+                    tokenized_examples["end_positions"].append(cls_index)
+                else:
+                    # text에서 정답의 Start/end character index
+                    start_char = answers["answer_start"][0]
+                    end_char = start_char + len(answers["text"][0])
+
+                    # text에서 current span의 Start token index
+                    token_start_index = 0
+                    while sequence_ids[token_start_index] != (1 if pad_on_right else 0):
+                        token_start_index += 1
+
+                    # text에서 current span의 End token index
+                    token_end_index = len(input_ids) - 1
+                    while sequence_ids[token_end_index] != (1 if pad_on_right else 0):
+                        token_end_index -= 1
+
+                    # 정답이 span을 벗어났는지 확인합니다(정답이 없는 경우 CLS index로 label되어있음).
+                    if not (
+                        offsets[token_start_index][0] <= start_char
+                        and offsets[token_end_index][1] >= end_char
+                    ):
+                        tokenized_examples["start_positions"].append(cls_index)
+                        tokenized_examples["end_positions"].append(cls_index)
+                    else:
+                        # token_start_index 및 token_end_index를 answer의 끝으로 이동합니다.
+                        # Note: answer가 마지막 단어인 경우 last offset을 따라갈 수 있습니다(edge case).
+                        while (
+                            token_start_index < len(offsets)
+                            and offsets[token_start_index][0] <= start_char
+                        ):
+                            token_start_index += 1
+                        tokenized_examples["start_positions"].append(token_start_index - 1)
+                        while offsets[token_end_index][1] >= end_char:
+                            token_end_index -= 1
+                        tokenized_examples["end_positions"].append(token_end_index + 1)
 
         for i in range(len(tokenized_examples["input_ids"])):
             # sequence id를 설정합니다 (to know what is the context and what is the question).
@@ -207,13 +261,24 @@ def run_mrc(
     # Post-processing:
     def post_processing_function(examples, features, predictions, training_args):
         # Post-processing: start logits과 end logits을 original context의 정답과 match시킵니다.
-        predictions = postprocess_qa_predictions(
-            examples=examples,
-            features=features,
-            predictions=predictions,
-            max_answer_length=data_args.max_answer_length,
-            output_dir=training_args.output_dir,
-        )
+        if training_args.do_predict:
+            predictions = postprocess_qa_predictions(
+                examples=examples,
+                features=features,
+                predictions=predictions,
+                max_answer_length=data_args.max_answer_length,
+                output_dir=training_args.output_dir,
+                is_eval = training_args.do_eval
+            )
+        elif training_args.do_eval:
+            predictions,label_pos = postprocess_qa_predictions(
+                examples=examples,
+                features=features,
+                predictions=predictions,
+                max_answer_length=data_args.max_answer_length,
+                output_dir=training_args.output_dir,
+                is_eval = training_args.do_eval
+            )
         # Metric을 구할 수 있도록 Format을 맞춰줍니다.
         formatted_predictions = [
             {"id": k, "prediction_text": v} for k, v in predictions.items()
@@ -228,7 +293,7 @@ def run_mrc(
             ]
             return EvalPrediction(
                 predictions=formatted_predictions, label_ids=references
-            )
+            ), label_pos
 
     metric = load_metric("squad")
 
