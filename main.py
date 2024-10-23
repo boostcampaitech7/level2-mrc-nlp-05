@@ -8,6 +8,7 @@ from omegaconf import DictConfig, OmegaConf
 from module.train import train
 from module.inference import inference
 from module.dense_ret_train import ret_train
+from module.evaluate_ret import ret_evaluate
 
 
 
@@ -27,5 +28,9 @@ def main(cfg: DictConfig):
         print("ret_train")
 
         ret_train(cfg.ret_train)
+    elif cfg.mode == "ret_evaluate":
+        print("ret_evaluate")
+
+        ret_evaluate(cfg.ret_evaluate)
 if __name__ == "__main__":
     main()

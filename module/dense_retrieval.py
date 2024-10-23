@@ -7,7 +7,7 @@ import random
 import time
 from contextlib import contextmanager
 
-import faiss
+#import faiss
 import numpy as np
 import pandas as pd
 import torch
@@ -50,7 +50,7 @@ class DenseRetrieval:
         학습과 추론에 필요한 객체들을 초기화하며, in-batch negative 데이터를 준비합니다.
         """
         config = AutoConfig.from_pretrained(model_args.dense_model_name_or_path)
-        self.data_path = data_args.train_dataset_name
+        self.data_path = data_args.data_path
         self.tokenizer = AutoTokenizer.from_pretrained(model_args.dense_model_name_or_path, use_fast=True)
         self.q_encoder = None
         self.p_embedding = None
@@ -63,7 +63,6 @@ class DenseRetrieval:
         """
         dense_embedding_path = os.path.join(self.data_path, "dense_embedding.bin")
         q_encoder_path = os.path.join(self.data_path, "q_encoder.bin")
-        p_encoder_path = os.path.join(self.data_path, "p_encoder.bin")
 
         if os.path.isfile(dense_embedding_path) and os.path.isfile(q_encoder_path):
             print("Loading saved dense embeddings and q_encoder...")
@@ -96,16 +95,14 @@ class DenseRetrieval:
                 query_or_dataset, return_tensors="pt", truncation=True, padding="max_length"
             ).to("cuda")
             query_vec = self.q_encoder(**query_inputs)
-            passage_vecs = torch.tensor(self.p_embedding).to("cuda")
+            passage_vecs = torch.tensor(self.p_embedding).view(-1, self.q_encoder.config.hidden_size).to("cuda")
 
             with torch.no_grad():
                 sim_scores = torch.matmul(query_vec, passage_vecs.T)
 
             topk_scores, topk_indices = torch.topk(sim_scores, k=topk)
-            topk_passages = [self.contexts[idx] for idx in topk_indices.cpu().tolist()]
 
-            del self.p_embedding
-            del self.q_encoder
+            topk_passages = [self.contexts[idx] for idx in topk_indices.squeeze().cpu().tolist()]
 
             return topk_scores.cpu().tolist(), topk_passages
 
