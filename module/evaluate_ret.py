@@ -13,8 +13,9 @@ def ret_evaluate(cfg: DictConfig):
     training_args = TrainingArguments(**cfg.get("train"))
 
     dataset_dict = load_from_disk('/data/ephemeral/data/train_dataset')
-    dataset = dataset_dict["validation"]
-    #dataset_combined = concatenate_datasets([dataset1, dataset2])
+    dataset1 = dataset_dict["train"].select(range(1000))
+    dataset2 = dataset_dict["validation"]
+    dataset_combined = concatenate_datasets([dataset1, dataset2])
 
     if data_args.which_retrieval == 'dense':
         retrieval = DenseRetrieval(model_args, data_args, training_args)
@@ -31,15 +32,17 @@ def ret_evaluate(cfg: DictConfig):
     top1_count=0
     top10_count=0
     topk_count=0 # 10 위로
-    for i, data in enumerate(tqdm(dataset, desc="Evaluating retrieval")):
-        original_context = data['context']
-        
-        _, topk_passages = retrieval.retrieve(data['question'], data_args.top_k_retrieval)
-        if original_context == topk_passages[0]:
+
+    topk_passages = retrieval.retrieve(dataset_combined, data_args.top_k_retrieval, True)
+
+
+    for i, data in enumerate(tqdm(topk_passages, desc="Evaluating retrieval")):
+        original_context = dataset_combined[i]['context']
+        if original_context == data[0]:
             top1_count+=1
-        if original_context in topk_passages[0:10]:
+        if original_context in data[0:10]:
             top10_count+=1
-        if original_context in topk_passages[0:data_args.top_k_retrieval]:
+        if original_context in data[0:data_args.top_k_retrieval]:
             topk_count+=1
                 
     
@@ -47,7 +50,7 @@ def ret_evaluate(cfg: DictConfig):
     print(f"Top 1 Score: {top1_count / (i+1) * 100:.2f}%")
     print(f"Top 10 Score: {top10_count / (i+1) * 100:.2f}%")
     print(f"Top {data_args.top_k_retrieval} Score: {topk_count / (i+1) * 100:.2f}%")
-            
+
         
     
     
