@@ -11,7 +11,7 @@ class Encoder(nn.Module):
 
     def forward(self, input_ids, attention_mask, token_type_ids=None):
         model_name = self.model_name.split("/")[-1].split("-")[0].lower()
-        if model_name = self.model_name.split("/")[-1].split("-")[0].lower() == "bert":
+        if model_name == "bert":
             outputs = self.model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,

@@ -3,6 +3,7 @@ defaults:
   - train: train
   - inference: inference
   - ret_train: train
+  - ret_evaluate: evaluate
 
 mode : ${mode}
 
