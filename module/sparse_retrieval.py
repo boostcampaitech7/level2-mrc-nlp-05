@@ -6,7 +6,7 @@ import random
 from contextlib import contextmanager
 from typing import List, NoReturn, Optional, Tuple, Union
 
-import faiss
+#import faiss
 import numpy as np
 import pandas as pd
 from datasets import Dataset, concatenate_datasets, load_from_disk
@@ -185,6 +185,9 @@ class SparseRetrieval:
                 doc_scores, doc_indices = self.get_relevant_doc_bulk(
                     query_or_dataset["question"], k=topk
                 )
+            if evaluation == True:
+                topk_passages = [[self.contexts[i] for i in doc_indices[batch_idx]] for batch_idx in range(len(doc_indices))]
+                return topk_passages
             for idx, example in enumerate(
                 tqdm(query_or_dataset, desc="Sparse retrieval: ")
             ):
