@@ -1,8 +1,8 @@
 from .dense_retrieval import DenseRetrieval
-from .sparse_retrieval import SparseRetrieval
+from .sparse_retrieval import SparseRetrieval, BM25Retrieval
 from .arguments import DataTrainingArguments, ModelArguments
 
-from transformers import TrainingArguments
+from transformers import TrainingArguments, AutoTokenizer
 from datasets import load_from_disk, concatenate_datasets
 from omegaconf import DictConfig
 from tqdm import tqdm
@@ -16,12 +16,23 @@ def ret_evaluate(cfg: DictConfig):
     dataset1 = dataset_dict["train"].select(range(1000))
     dataset2 = dataset_dict["validation"]
     dataset_combined = concatenate_datasets([dataset1, dataset2])
-
+    tokenizer = AutoTokenizer.from_pretrained(
+        'klue/roberta-large',
+        use_fast=True,
+    )
     if data_args.which_retrieval == 'dense':
         retrieval = DenseRetrieval(model_args, data_args, training_args)
         retrieval.get_dense_embedding()
     elif data_args.which_retrieval == 'sparse':
+        tokenize_fn = tokenizer.tokenize
         retrieval = SparseRetrieval(
+            tokenize_fn,
+            data_args.data_path,
+        )
+        retrieval.get_sparse_embedding()
+    elif data_args.which_retrieval == 'bm25':
+        tokenize_fn = tokenizer.tokenize
+        retrieval = BM25Retrieval(
             tokenize_fn,
             data_args.data_path,
         )
@@ -31,9 +42,13 @@ def ret_evaluate(cfg: DictConfig):
     
     top1_count=0
     top10_count=0
-    topk_count=0 # 10 위로
+    top20_count=0
+    top40_count=0
+    top50_count=0
+    top100_count=0
+ 
 
-    topk_passages = retrieval.retrieve(dataset_combined, data_args.top_k_retrieval, True)
+    topk_passages = retrieval.retrieve(dataset_combined, 50, True)
 
 
     for i, data in enumerate(tqdm(topk_passages, desc="Evaluating retrieval")):
@@ -42,14 +57,26 @@ def ret_evaluate(cfg: DictConfig):
             top1_count+=1
         if original_context in data[0:10]:
             top10_count+=1
-        if original_context in data[0:data_args.top_k_retrieval]:
-            topk_count+=1
+        if original_context in data[0:20]:
+            top20_count+=1
+        if original_context in data[0:40]:
+            top40_count+=1
+        if original_context in data[0:50]:
+            top50_count+=1
+        if original_context in data[:100]:
+            top100_count+=1
                 
     
     # 결과 출력 (f-string 사용)
     print(f"Top 1 Score: {top1_count / (i+1) * 100:.2f}%")
     print(f"Top 10 Score: {top10_count / (i+1) * 100:.2f}%")
-    print(f"Top {data_args.top_k_retrieval} Score: {topk_count / (i+1) * 100:.2f}%")
+    print(f"Top 20 Score: {top20_count / (i+1) * 100:.2f}%")
+    print(f"Top 40 Score: {top40_count / (i+1) * 100:.2f}%")
+    print(f"Top 50 Score: {top50_count / (i+1) * 100:.2f}%")
+    print(f"Top 100 Score: {top100_count / (i+1) * 100:.2f}%")
+
+ 
+ 
 
         
     
