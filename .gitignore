@@ -1,0 +1,11 @@
+*.json
+*bin
+*.pth
+*.ipynb
+
+__pycache__
+
+
+wandb
+outputs
+models

@@ -1,0 +1,16 @@
+defaults:
+  - _self_
+  - train: train
+  - inference: inference
+  - override mode: train
+
+
+model-name : klue/roberta-large
+
+mode:
+  train:
+    model:
+      model_name_or_path: ${model-name}
+  inference:
+    model:
+      model_name_or_path: ${model-name}
