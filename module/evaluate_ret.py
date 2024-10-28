@@ -1,5 +1,5 @@
 from .dense_retrieval import DenseRetrieval
-from .sparse_retrieval import SparseRetrieval, BM25Retrieval
+from .sparse_retrieval import SparseRetrieval, BM25Retrieval, Sparse_and_BM25Retrieval
 from .arguments import DataTrainingArguments, ModelArguments
 
 from transformers import TrainingArguments, AutoTokenizer
@@ -25,7 +25,7 @@ def ret_evaluate(cfg: DictConfig):
         retrieval.get_dense_embedding()
     elif data_args.which_retrieval == 'sparse':
         tokenize_fn = tokenizer.tokenize
-        retrieval = SparseRetrieval(
+        retrieval = Sparse_and_BM25Retrieval(
             tokenize_fn,
             data_args.data_path,
         )
@@ -36,19 +36,20 @@ def ret_evaluate(cfg: DictConfig):
             tokenize_fn,
             data_args.data_path,
         )
-        retrieval.get_sparse_embedding()
+        retrieval.get_bm25_embedding()
     #else:
         
     
     top1_count=0
     top10_count=0
     top20_count=0
+    top30_count=0
     top40_count=0
     top50_count=0
     top100_count=0
  
 
-    topk_passages = retrieval.retrieve(dataset_combined, 50, True)
+    topk_passages = retrieval.retrieve(dataset_combined, 100, True)
 
 
     for i, data in enumerate(tqdm(topk_passages, desc="Evaluating retrieval")):
@@ -58,6 +59,8 @@ def ret_evaluate(cfg: DictConfig):
         if original_context in data[0:10]:
             top10_count+=1
         if original_context in data[0:20]:
+            top20_count+=1
+        if original_context in data[0:30]:
             top20_count+=1
         if original_context in data[0:40]:
             top40_count+=1
@@ -71,6 +74,7 @@ def ret_evaluate(cfg: DictConfig):
     print(f"Top 1 Score: {top1_count / (i+1) * 100:.2f}%")
     print(f"Top 10 Score: {top10_count / (i+1) * 100:.2f}%")
     print(f"Top 20 Score: {top20_count / (i+1) * 100:.2f}%")
+    print(f"Top 40 Score: {top30_count / (i+1) * 100:.2f}%")
     print(f"Top 40 Score: {top40_count / (i+1) * 100:.2f}%")
     print(f"Top 50 Score: {top50_count / (i+1) * 100:.2f}%")
     print(f"Top 100 Score: {top100_count / (i+1) * 100:.2f}%")
