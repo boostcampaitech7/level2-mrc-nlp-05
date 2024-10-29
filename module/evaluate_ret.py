@@ -49,7 +49,7 @@ def ret_evaluate(cfg: DictConfig):
     top100_count=0
  
 
-    topk_passages = retrieval.retrieve(dataset_combined, 100, True)
+    topk_passages = retrieval.retrieve(dataset_combined, 100, True, 16)
 
 
     for i, data in enumerate(tqdm(topk_passages, desc="Evaluating retrieval")):
@@ -61,7 +61,7 @@ def ret_evaluate(cfg: DictConfig):
         if original_context in data[0:20]:
             top20_count+=1
         if original_context in data[0:30]:
-            top20_count+=1
+            top30_count+=1
         if original_context in data[0:40]:
             top40_count+=1
         if original_context in data[0:50]:
@@ -74,7 +74,7 @@ def ret_evaluate(cfg: DictConfig):
     print(f"Top 1 Score: {top1_count / (i+1) * 100:.2f}%")
     print(f"Top 10 Score: {top10_count / (i+1) * 100:.2f}%")
     print(f"Top 20 Score: {top20_count / (i+1) * 100:.2f}%")
-    print(f"Top 40 Score: {top30_count / (i+1) * 100:.2f}%")
+    print(f"Top 30 Score: {top30_count / (i+1) * 100:.2f}%")
     print(f"Top 40 Score: {top40_count / (i+1) * 100:.2f}%")
     print(f"Top 50 Score: {top50_count / (i+1) * 100:.2f}%")
     print(f"Top 100 Score: {top100_count / (i+1) * 100:.2f}%")

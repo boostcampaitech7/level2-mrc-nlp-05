@@ -77,7 +77,7 @@ class DenseRetrieval:
             exit()
 
     def retrieve(
-        self, query_or_dataset: Union[str, Dataset], topk: Optional[int] = 20
+        self, query_or_dataset: Union[str, Dataset], topk: Optional[int] = 20, eval: Optional[bool] = False, batch_size: Optional[int]=4,
     ) -> Union[Tuple[List[float], List[str]], pd.DataFrame]:
         """
         Query와 가장 유사한 K개의 Passage를 찾는 함수입니다.
@@ -112,15 +112,31 @@ class DenseRetrieval:
             query_inputs = self.tokenizer(queries, return_tensors="pt", truncation=True, padding="max_length").to(
                 "cuda"
             )
-            with torch.no_grad():
-                q_outputs = self.q_encoder(**query_inputs)
+            q_outputs = []
+            if eval:
+                # Batch size 설정
+                data_loader = DataLoader(queries, batch_size=batch_size)
 
+                with torch.no_grad():
+                    for batch in data_loader:
+                        query_inputs = self.tokenizer(batch, return_tensors="pt", truncation=True, padding="max_length").to("cuda")
+                        q_output = self.q_encoder(**query_inputs)
+                        q_outputs.append(q_output)
+
+                # 모든 batch의 결과를 합치기
+                q_outputs = torch.cat(q_outputs, dim=0)
+            else:
+                query_inputs = self.tokenizer(queries, return_tensors="pt", truncation=True, padding="max_length").to("cuda")
+                with torch.no_grad():
+                    q_outputs = self.q_encoder(**query_inputs)
             passage_vecs = torch.tensor(self.p_embedding).view(-1, self.q_encoder.config.hidden_size).to("cuda")
 
             with torch.no_grad():
                 sim_scores = torch.matmul(q_outputs, passage_vecs.T)
 
             topk_scores, topk_indices = torch.topk(sim_scores, k=topk)
+            if eval==True:
+                return [[self.contexts[pid] for pid in topk_indices[idx][:topk]] for idx in range(len(query_or_dataset))]
             for idx, query in enumerate(queries):
                 topk_passages = [self.contexts[i] for i in topk_indices[idx].cpu().tolist()]
 

@@ -166,4 +166,4 @@ def ret_train(cfg: DictConfig):
     train_dataloader = prepare_in_batch_negative(config, contexts, tokenizer, model_args, data_args, training_args)
 
     p_encoder, q_encoder = train(train_dataloader, model_args, data_args, training_args)
-    build_dense_embedding(p_encoder, q_encoder, contexts, tokenizer)
+    build_dense_embedding(p_encoder, q_encoder, contexts, tokenizer, training_args)
