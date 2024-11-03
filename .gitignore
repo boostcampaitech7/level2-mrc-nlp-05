@@ -1,0 +1,15 @@
+*.json
+*bin
+*.pth
+*.ipynb
+*.DS_Store
+!test.ipynb
+!train.ipynb
+!wiki.ipynb
+__pycache__
+
+
+
+wandb
+outputs
+models
