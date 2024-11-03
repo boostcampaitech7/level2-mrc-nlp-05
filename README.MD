@@ -5,7 +5,8 @@
 # 🔎 프로젝트 소개
 | **개요** | **설명** |
 | --- | --- |
-| **주제** |  주어진 질문에 대해 정해진 지문이 없이 사전에 구축되어 있는 Knowledge resource에서 <br> 질문에 대한 답변을 찾는 과정 |
+| **주제** |  주어진 질문에 대해 정해진 지문이 없이 사전에 구축되어 있는 Knowledge resource에서 질문에 대한 답변을 찾는 과정 |
+| **구조** |  2-stage로 나누어진 Retriever → Reader 구조의 모델 <br> 1) Retriever: 주어진 질문과 관련된 문서를 찾아준다. <br> 2) Reader: 관련된 문서를 읽고 적절한 답변을 찾아준다. |
 | **데이터셋** | **train_dataset** train: 3,952, validation: 240 <br> **test_dataset** validation: 240(public), 360(private) <br> **wikipedia_documents** 60,613 |
 | **평가** | • **두 가지 평가지표**를 사용(EM 기준으로 반영되고, F1은 참고용으로만 활용) <br> • **Exact Match**(EM): 모델의 예측과, 실제 답이 정확하게 일치할 때만 점수가 주어진다. <br> • **F1 Score**: EM과 다르게 겹치는 단어도 있는 것을 고려해 부분 점수를 제공한다. |
 | **개발 환경** | **`GPU`**: Tesla V100 Sever 4대, **`IDE`**: Vscode, Jupyter Notebook |
@@ -58,7 +59,7 @@
 
 <p align='center'>
   <img src='img/image-1.png' width='300'>
-</p
+</p>
 
 ### 모델 분석 및 성능 개선
 
@@ -66,7 +67,7 @@
 | --- | --- | --- |
 | **Retrieval** | **Sparse** | 텍스트의 단어 빈도를 기반으로 문서와 쿼리 간의 유사도를 계산한다. 주로 TF-IDF와 BM25와 같은 알고리즘이 사용되며, 높은 정밀도를 가지지만, 문장 간 의미적 유사도를 잘 반영하지 못하는 한계가 있다. <br><br> 사용한 모델: TF-IDF, BM25, TF-IDF + BM25, Elastic Search |
 |  | **Dense** | 딥러닝 기반 임베딩 모델(Bert)을 활용하여 문서와 쿼리를 밀집 벡터 공간에 매핑한 후, 이 벡터들 간의 유사도를 계산하여 가장 관련성 높은 문서를 찾는다. <br><br> 사용한 모델: klue/bert-base, klue/roberta(base, large) <br><br> 모델 구조: Cross-Attention Encoder, Dual-Encoder, Colbert |
-| **Reader** |  | 사용한 모델: klue/bert-base, monologg/koelectra-base-v3-discriminator, klue/roberta-large, DHBaek/xlm-roberta-large-korquad-mask, hanmaroo/xlm_roberta_large_korquad_v1, team-lucid/deberta-v3-xlarge-korean |
+| **Reader** |  | Query에 대응하는 답변을 문서에서 찾는다. <br><br> 사용한 모델: klue/bert-base, monologg/koelectra-base-v3-discriminator, klue/roberta-large, DHBaek/xlm-roberta-large-korquad-mask, hanmaroo/xlm_roberta_large_korquad_v1, team-lucid/deberta-v3-xlarge-korean |
 
 ### 개선 아이디어
 
@@ -96,7 +97,7 @@
     - 모델별 EM, F1 Score 비교
         
         
-        | Reader | EM | F1 | Epoch | Batch size |
+        | **Reader** | **EM** | **F1** | **Epoch** | **Batch size** |
         | --- | --- | --- | --- | --- |
         | klue/bert-base | 59.833 | 69.641 | 15 | 24 |
         | monologg/koelectra-base-v3-discriminator | 56.250 | 65.864 | 15 | 24 |
@@ -107,7 +108,7 @@
     - max_seq_length, doc_stride에 따른 비교
         
         
-        | Model name | EM | F1 | max_seq_length | doc_stride | doc_stride/max_seq_length |
+        | **Model name** | **EM** | **F1** | **max_seq_length** | **doc_stride** | **doc_stride/max_seq_length** |
         | --- | --- | --- | --- | --- | --- |
         | **klue/bert-base** | **59.833** | **69.641** | **384** | **128** | **0.333333333** |
         | klue/bert-base | 57.083 | 65.419 | 512 | 128 | 0.25 |
@@ -115,14 +116,14 @@
     - n_best_size에 따른 비교
         
         
-        | Model name | EM | F1 | n_best_size | EM 개선율(%) |
+        | **Model name** | **EM** | **F1** | **n_best_size** | **EM 개선율(%)** |
         | --- | --- | --- | --- | --- |
         | klue/bert-base | 59.833 | 69.641 | 20 | - |
         | **klue/bert-base** | **60.12** | **67.537** | **40** | **0.48** |
     - no_answer 토큰 추가에 따른 비교
         
         
-        | Model name | EM | F1 | no_answer 토큰 추가 | null_score_diff_threshold | EM 개선율(%) |
+        | **Model name** | **EM** | **F1** | **no_answer 토큰 추가** | **null_score_diff_threshold** | **EM 개선율(%)** |
         | --- | --- | --- | --- | --- | --- |
         | **klue/bert-base** | **59.833** | **69.641** | **X** | - | - |
         | klue/bert-base | 58.333 | 65.766 | O | 0 | -2.506 |
@@ -131,14 +132,14 @@
     - LoRA 사용에 따른 비교
         
         
-        | Model name | EM | F1 | LoRA | EM 개선율(%) |
+        | **Model name** | **EM** | **F1** | **LoRA** | **EM 개선율(%)** |
         | --- | --- | --- | --- | --- |
         | **klue/bert-base** | **59.833** | **69.641** | **X** | **-** |
         | klue/bert-base | 56.25 | 66.213 | O | -5.988 |
     - 데이터 전처리에 따른 비교
         
         
-        | Model name | EM | F1 | 데이터 전처리 | EM 개선율(%) |
+        | **Model name** | **EM** | **F1** | **데이터 전처리** | **EM 개선율(%)** |
         | --- | --- | --- | --- | --- |
         | klue/bert-base | 59.833 | 69.641 | X | - |
         | **klue/bert-base** | **61.25** | **68.583** | **O** | **2.368** |
