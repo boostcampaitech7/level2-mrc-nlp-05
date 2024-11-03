@@ -6,7 +6,7 @@
 | **개요** | **설명** |
 | --- | --- |
 | **주제** |  주어진 질문에 대해 정해진 지문이 없이 사전에 구축되어 있는 Knowledge resource에서 질문에 대한 답변을 찾는 과정 |
-| **구조** |  2-stage로 나누어진 Retriever → Reader 구조의 모델 <br> 1) Retriever: 주어진 질문과 관련된 문서를 찾아준다. <br> 2) Reader: 관련된 문서를 읽고 적절한 답변을 찾아준다. |
+| **구조** |  **2-stage**로 나누어진 **Retriever → Reader 구조**의 모델 <br> 1) **Retriever**: 주어진 질문과 관련된 문서를 찾아준다. <br> 2) **Reader**: 관련된 문서를 읽고 적절한 답변을 찾아준다. |
 | **데이터셋** | **train_dataset** train: 3,952, validation: 240 <br> **test_dataset** validation: 240(public), 360(private) <br> **wikipedia_documents** 60,613 |
 | **평가** | • **두 가지 평가지표**를 사용(EM 기준으로 반영되고, F1은 참고용으로만 활용) <br> • **Exact Match**(EM): 모델의 예측과, 실제 답이 정확하게 일치할 때만 점수가 주어진다. <br> • **F1 Score**: EM과 다르게 겹치는 단어도 있는 것을 고려해 부분 점수를 제공한다. |
 | **개발 환경** | **`GPU`**: Tesla V100 Sever 4대, **`IDE`**: Vscode, Jupyter Notebook |
